@@ -33,8 +33,8 @@ original briefs and guides are still in place (`track-2/README.md`,
 **Step 1 — clone**
 
 ```bash
-git clone https://github.com/c-awad/hackathon-2026.git
-cd hackathon-2026
+git clone https://github.com/c-awad/MantisGridAI-hackathon-2026.git
+cd MantisGridAI-hackathon-2026
 ```
 
 **Step 2 — generate the data** (about a minute; the licence forbids committing it).
