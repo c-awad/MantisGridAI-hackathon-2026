@@ -12,6 +12,7 @@ brief asks. The project itself lives in [`track-2/`](track-2/).
 | **The claims** | [`claims.json`](claims.json) |
 | **The working** | [`track-2/ANALYSIS.md`](track-2/ANALYSIS.md) — case by case, 1 to 9b |
 | **The API review** | [`track-2/API_ANALYSIS.md`](track-2/API_ANALYSIS.md) — every endpoint, and three bugs |
+| **Feedback for MantisGrid** | [`track-2/API_FEEDBACK.md`](track-2/API_FEEDBACK.md) — what we used, what helped most, the bugs with line numbers, and what we would change |
 | **The scripts** | [`track-2/analysis/`](track-2/analysis/) — one per case, plus the scheduler simulator |
 
 This repository is a fork of the organisers' `hackathon-2026-official`, so the

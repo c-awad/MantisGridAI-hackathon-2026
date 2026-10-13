@@ -61,16 +61,16 @@ for d in sorted(f.detectorId.unique()):
 PAGE = len(page)
 js = f[f["metadata.impact_scope"] == "job"]
 sev_impact = js.groupby("severity")["metadata.impact_gpu_hours"].agg(["size", "sum", "max"])
-active, _ = call("POST", "/v1/events/findings", {"is_active": True})
+active, _ = call("POST", "/v1/events/findings", {"limit": 1})   # the API has no is_active filter; isActive is counted from the file below
 sev, _ = call("POST", "/v1/events/findings", {"severity": "CRITICAL"})
 n_active = int((~f.isActive.astype(bool)).sum())
 record(
     "findings", "POST /v1/events/findings", "A", "fact (corpus)",
     {"unfiltered_page_size": len(page), "per_detector_counts": det,
-     "is_active_true": len(active.get("findings", [])), "severity_CRITICAL": len(sev.get("findings", []))},
-    [f"corpus is {len(f):,} findings across {f.detectorId.nunique()} detectors; every call is capped at "
-     f"{PAGE} results (an unfiltered call and a filtered one both return {PAGE}), so per-detector counts from "
-     f"this endpoint are 'up to {PAGE}' and a full sweep needs ~{-(-len(f) // max(PAGE, 1))} calls",
+     "total_reported": fx.get("total"), "severity_CRITICAL": len(sev.get("findings", []))},
+    [f"corpus is {len(f):,} findings across {f.detectorId.nunique()} detectors; the default page is "
+     f"{PAGE} rows, the request takes limit/offset, and the response carries total={fx.get('total')} "
+     f"(an earlier version of this script misread the default limit as a cap)",
      f"{n_active:,} findings ({n_active/len(f):.0%}) are RESOLVED/isActive=false; the active set is "
      f"{len(f)-n_active:,} -- about a quarter of the corpus",
      f"severity is not cost: the {int(sev_impact.loc['CRITICAL', 'size'])} CRITICAL job-scope findings carry "
@@ -82,7 +82,7 @@ record(
      "CRITICAL is reserved for the scheduler's 31 node failures plus the one hardware fault -- it tracks "
      "availability, not money"],
     "Trust it as a corpus. Never sort it by severity and call that a cost ranking.",
-    "Expose a total count and a cursor, and let a caller order by metadata.impact_gpu_hours.")
+    "Let a caller order by metadata.impact_gpu_hours, and expose impact_kind/impact_scope as filters.")
 
 # causal: the endpoint that resolves a cluster to one cause
 cs = {}

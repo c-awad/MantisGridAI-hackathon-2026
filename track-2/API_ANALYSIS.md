@@ -96,10 +96,14 @@ actually tested.
 
 The corpus: **11,979 findings across 23 detectors**.
 
-- **Every call is capped at 100 results**, filtered or not, so a full sweep needs
-  ~120 calls and a per-detector count from this endpoint means "up to 100". Get real
-  counts from `/v1/policies/rules`, which carries a `findings` number per rule.
-  **What we would change:** return a total count and a cursor.
+- **Paging works, and we misread it at first.** The request takes `limit`
+  (default 100) and `offset`, and every response carries `total`. An earlier
+  version of this review said the endpoint "is capped at 100 results" and should
+  "return a total count and a cursor": wrong on both counts. Our script measured
+  `len(findings)` instead of reading `total`, and passed an `is_active` filter the
+  request model does not have, so that call silently returned an unfiltered page.
+  Pass `limit` to sweep a detector in one call; the counts below come from
+  `findings.json` directly and are unaffected.
 - **`isActive` hides three quarters of it.** **8,691 findings (73%)** are
   `RESOLVED` / `isActive: false`; the active set is **3,288**. That is the right
   default for an on-call view and the wrong one for a quarterly cost review, where
@@ -368,7 +372,7 @@ omission.
 |---|---|
 | **`usd_per_gpu_hour` / `usd_per_engineer_hour` overrides** | Tested in `api_review.py`, but the dashboard has no price control. A CFO modelling a different rate is exactly the use case, and the response even re-tags itself `2026-Q3+custom` so a price change reads differently from an infrastructure change |
 | **`category` filter on findings** | We filter by `detector_id` only. `PERFORMANCE` / `AVAILABILITY` / `COST` is the natural grouping for a business view |
-| **`offset` / `limit` paging** | We never page, which is why the 100-result cap went unnoticed until this review |
+| **`offset` / `limit` paging** | Exercised only in the review. Our first pass misread the default `limit` of 100 as a cap; the endpoint pages correctly and returns `total` |
 | **`hop_count` > 1 on neighbor** | Used once, in the review, and that is where the truncation bug showed up |
 | **`entity_type=user` on underperforming** | Called, but deliberately not shown: it ranks people, and the brief warns a dashboard ranking employees by waste is a hostile dashboard |
 
