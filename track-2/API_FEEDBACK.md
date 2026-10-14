@@ -266,6 +266,32 @@ them by accident.
 express draining as a cost, never a saving; never sum across `impact_kind`; cite all
 contributing findings.
 
+**What we did instead.** We replaced both recommendations with three ranked actions
+built from `jobs.parquet` and `gpus.parquet`, where every job lands in exactly one
+waste class so nothing is counted twice (`analysis/case2_recoverable.py`,
+`case2b_cpu_offload.py`, `case3_imbalance.py`):
+
+| Action | Point | Range | How it is counted |
+|---|---|---|---|
+| End allocations idle at 0% for an hour | $205K | $166K–$212K | Jobs whose *average and peak* were both 0%; hours returned after the grace period. Barely moves between a 1 h and 8 h grace, because these jobs sat idle for days. |
+| Move CPU work off GPU machines | $79K | $31K–$83K | Jobs that never opened the GPU at all (0% peak, zero GPU memory, idle power draw). The low end is only those that *completed*, which proves the work did not need a GPU. |
+| Right-size 2-GPU jobs using one card | $36K | $29K–$48K | From `gpus.parquet` at one row per card: a card under 5% while its sibling worked. Invisible in `jobs.parquet`, which averages the cards. |
+
+Instead of `rec_lowutil`'s constant 0.35, we split low-utilisation jobs by what the
+data actually shows: jobs that *never* computed are counted in full, and jobs that
+average under 5% but peak above 50% — 2,564 of them, 43,217 GPU-h of real bursty
+work — are counted at half and flagged as the risky part. Each action carries an
+owner, a confidence, a range, a "what if we are wrong" note, and a click-through to
+the actual job rows and finding IDs.
+
+Instead of `rec_drain_nodes`, we drain **one** machine. We found it with a test that
+follows the machine rather than the finding count (`analysis/case5_hardware.py`):
+for every (machine, exit status) pair, count owners who crashed there repeatedly
+with that status and never produced it anywhere else. Exactly one pair passes:
+`r216287-n200569`, SIGBUS, three unrelated owners. On the dashboard, the drain
+recommendation appears as a mistake with its real cost ($55K a quarter of
+capacity), beside the live `causal` answer that refutes it.
+
 ### 5.2 `GET /v1/resources/underperforming` — a finding count is not a drain list
 
 Nodes are ranked by finding count (`api/main.py:529`); the response's own
@@ -280,6 +306,27 @@ evidence that follows the machine (a multi-owner exit-status signature, located 
 failures, excess failures after adjusting for each owner's own rate); break ties
 explicitly or return all tied machines.
 
+**What we did instead.** We triaged every one of the 113 `node-elevated-failure-rate`
+firings ourselves (`analysis/case6_triage.py`). First we reproduced the rule's own
+counts — 14-day windows from the first job, jobs counted by `time_end` and placed by
+`gpus.parquet` — and 112 of 113 matched exactly. Then each firing got four
+like-for-like tests:
+
+- **Hardware:** an exit status two or more owners hit on this machine and on no
+  other machine in four months, or two or more node failures located here.
+- **User code:** one owner holds 60% or more of the failures, everyone else on the
+  machine fails at a normal rate, and the owner's failures follow them — best shown
+  by the same Slurm array's tasks failing on other machines.
+- **Workload mix:** no dominant owner, and each owner's own failure rate elsewhere
+  in the same window explains the count.
+- **Cannot determine:** everything else, with the specific reason recorded.
+
+Result: 46 user code, 40 workload mix, 26 cannot determine, **1** hardware. Each
+verdict carries its reasoning with the numbers it used, and all 113 are in
+`claims.json`. Where the API's own 48-hour burst detector named a cause, we agreed
+in 13 of 14. We kept the user ranking off the dashboard entirely: owners stay hashed,
+and we present waste as capacity to recover, never as people to blame.
+
 ### 5.3 `GET /v1/scaling/efficiency` — right caveat, wrong weighting
 
 Its caveat to read the shares rather than the median is correct. But every figure is
@@ -289,6 +336,15 @@ back only in the 17–64 band (32%). The 398 jobs of 9+ GPUs hold 16.6% of all
 GPU-hours at 59% utilisation; "wide jobs are wasteful" is a job-count artefact.
 
 **Suggested fix:** add a `gpu_hour_weighted_sm_util` column.
+
+**What we did instead.** We recomputed utilisation by width weighted by GPU-hours
+from `jobs.parquet` (`analysis/case1_money.py`), and reported both views side by
+side so the contradiction is visible: by job count, wide jobs look wasteful (59% of
+9+ GPU jobs run under 5%); by GPU-hours, they are the most efficient work on the
+cluster up to about 16 GPUs. We therefore left width out of our cut list altogether,
+and flagged the 17–64 GPU band (32% hour-weighted) as the one worth investigating.
+Wide jobs that do idle are caught by the card-imbalance and idle-timeout actions,
+which measure the idle cards directly instead of inferring waste from job size.
 
 ---
 
