@@ -108,6 +108,16 @@ the recommendation in two calls.
 - **Suggested fix:** return `truncated: true` and the real neighbour count; apply
   the cap to a connected subgraph rather than a set; include edge direction and
   per-type counts.
+- **What we did instead:** we stopped relying on the endpoint for anything that
+  needed the whole graph and walked the organisers' own edge table,
+  `data/synthetic/edges.parquet`, directly in pandas (`analysis/case4_storage.py`).
+  We took every `MOUNTS` edge into the volume (2,537 pods), joined each pod to its
+  machine through the `RUNS_ON` edges, and filtered by the incident window using job
+  start and end times. That full, untruncated walk is what showed **159 machines**
+  running pods on the volume during the episode, against the **121** that carry a
+  finding — a gap the truncated endpoint could not have revealed. We still called
+  `/v1/neighbor` in the review, but only at one hop and only to document the
+  truncation, never to size the incident.
 
 ### 3.2 `GET /v1/queue/latency` labels a judgment as a fact
 
@@ -125,6 +135,27 @@ the recommendation in two calls.
   past a 4-hour target, 3,719 h.
 - **Suggested fix:** measure from `time_eligible`, group by person, and mark the
   monetised field `kind: "judgment"` with the blocking assumption in `provenance`.
+- **What we did instead:** we kept the endpoint's percentiles and rebuilt the total
+  ourselves from `jobs.parquet` (`analysis/case8_queue.py`):
+  1. **Measured from eligibility, not submission:** queue time = `time_start −
+     time_eligible`, which removes the 22,880 h of jobs held by their own
+     dependencies and leaves 75,334 h.
+  2. **Counted people, not jobs:** for each owner we merged their overlapping waits
+     into one interval set, so someone waiting on 1,000 array tasks at once waits
+     once. That gives **4,997 person-hours**.
+  3. **Counted only the painful part:** time past a 4-hour target, merged per
+     person: **3,719 person-hours**.
+  4. **Reported hours first and labelled the dollars as an upper bound.** On the
+     dashboard the figure reads "worth up to $X if that waiting fully blocks the
+     researcher", and it is never added to the GPU savings, which are a different
+     budget.
+
+  Going further than the endpoint can, we replayed all 74,838 jobs through our own
+  discrete-event simulator (`analysis/sched_sim.py`) with each researcher's
+  concurrency quota modelled. That reproduced 40% of the observed waiting (versus 5%
+  without quotas) and showed the wait is caused by per-user caps, not capacity: in
+  90% of long waits the person was already at their cap while a median 287 of 450
+  GPUs sat free.
 
 ### 3.3 `POST /v1/causal` quotes inconsistent figures and a hard-coded one
 
@@ -140,6 +171,25 @@ the recommendation in two calls.
   carried on; a hop that claims to be measured should be measured or dropped.)
 - **Also:** the culprit list always shows the first four nodes at 0.31, which is a
   display choice rather than evidence about those four.
+- **What we did instead:** we used `causal` for what it computes — *which*
+  resource a cluster of findings resolves to, and the spread of scores across the
+  machines — and checked every number in its sentence against the data before
+  repeating it (`analysis/case4_storage.py`):
+  - **One episode window, rebuilt ourselves.** The findings carry no window, so we
+    tested three candidate 48-hour windows against the per-node `impact_gpu_hours`
+    using real placements in `gpus.parquet`. The 48 hours *before* detection
+    reproduce every node's figure exactly (correlation 1.000), which dates the
+    episode and gives one consistent basis instead of a per-finding ratio.
+  - **The utilisation hop replaced with measured telemetry.** We compared those 121
+    machines' hour-weighted utilisation during the episode (31.4%) with the week
+    before (36.4%), the week after (30.6%), and the rest of the cluster in the same
+    window (44.9%). We report a mild dip, not the hard-coded −91.4%.
+  - **On the dashboard** we show `causal`'s ranked culprits and scores live, because
+    those are what the endpoint resolves, and quote its sentence verbatim only
+    alongside our own checked figures.
+  - **For the array case, which is computed rather than fixed,** we relied on
+    `causal` directly: it is the evidence that the API's "drain the top 5 nodes"
+    recommendation points at the wrong resources.
 
 ---
 
